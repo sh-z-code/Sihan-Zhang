@@ -1,0 +1,19 @@
+{
+  "name": "line-booking",
+  "version": "1.0.0",
+  "description": "LINE 官方帳號訂位系統：串接 Google 日曆並提供訂位提醒",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "google-auth-library": "^10.1.0"
+  }
+}

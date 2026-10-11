@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>線上訂位</title>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    :root {
+      --brand: #06c755;
+      --text: #1c1c1e;
+      --muted: #6e6e73;
+      --line: #e5e5ea;
+      --bg: #f5f5f7;
+      --card: #ffffff;
+      --danger: #d70015;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --text: #f2f2f7;
+        --muted: #a1a1a6;
+        --line: #38383a;
+        --bg: #000000;
+        --card: #1c1c1e;
+        --danger: #ff6961;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main { max-width: 480px; margin: 0 auto; padding: 16px 16px 40px; }
+    h1 { font-size: 22px; margin: 8px 0 4px; }
+    .sub { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+    .card { background: var(--card); border-radius: 14px; padding: 16px; margin-bottom: 12px; }
+    label { display: block; font-size: 14px; color: var(--muted); margin: 0 0 6px; }
+    .field + .field { margin-top: 14px; }
+    input, select, textarea {
+      width: 100%;
+      font: inherit;
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    textarea { resize: vertical; min-height: 64px; }
+    .slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .slot {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 4px;
+      font: inherit;
+      text-align: center;
+    }
+    .slot small { display: block; font-size: 11px; color: var(--muted); }
+    .slot[aria-pressed="true"] { border-color: var(--brand); background: var(--brand); color: #fff; }
+    .slot[aria-pressed="true"] small { color: #ffffffcc; }
+    .slot:disabled { opacity: .4; }
+    .primary {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px;
+      font: inherit;
+      font-weight: 600;
+      color: #fff;
+      background: var(--brand);
+    }
+    .primary:disabled { opacity: .5; }
+    .secondary {
+      width: 100%;
+      margin-top: 8px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 13px;
+      font: inherit;
+      color: var(--text);
+      background: transparent;
+    }
+    .error { color: var(--danger); font-size: 14px; min-height: 20px; margin: 8px 0; }
+    .hint { color: var(--muted); font-size: 13px; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; }
+    dt { color: var(--muted); }
+    dd { margin: 0; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 id="shop-name">線上訂位</h1>
+    <p class="sub">完成後會傳送確認訊息到 LINE，並在用餐前提醒您</p>
+
+    <p id="loading" class="hint">載入中…</p>
+
+    <form id="form" hidden novalidate>
+      <div class="card">
+        <div class="field">
+          <label for="date">日期</label>
+          <input id="date" name="date" type="date" required />
+        </div>
+        <div class="field">
+          <label>時段</label>
+          <div id="slots" class="slots"><span class="hint">請先選擇日期</span></div>
+        </div>
+        <div class="field">
+          <label for="people">人數</label>
+          <select id="people" name="people"></select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="field">
+          <label for="name">訂位姓名</label>
+          <input id="name" name="name" autocomplete="name" maxlength="50" required />
+        </div>
+        <div class="field">
+          <label for="phone">聯絡電話</label>
+          <input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="0912-345-678" required />
+        </div>
+        <div class="field">
+          <label for="note">備註（選填）</label>
+          <textarea id="note" name="note" maxlength="200" placeholder="例如：需要兒童椅、慶生"></textarea>
+        </div>
+      </div>
+
+      <p id="error" class="error" role="alert"></p>
+      <button id="submit" class="primary" type="submit">確認訂位</button>
+    </form>
+
+    <section id="done" hidden>
+      <div class="card">
+        <h2 style="margin-top:0">✅ 訂位成功</h2>
+        <dl id="summary"></dl>
+      </div>
+      <button id="add-calendar" class="primary" type="button">加入我的 Google 日曆</button>
+      <button id="close" class="secondary" type="button">回到聊天室</button>
+      <p class="hint">確認訊息已傳送到 LINE，用餐前也會再提醒您。</p>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let selectedTime = null;
+    let calendarUrl = null;
+
+    function showError(message) {
+      $('error').textContent = message || '';
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, options);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '發生錯誤，請稍後再試');
+      return data;
+    }
+
+    async function loadSlots(date) {
+      selectedTime = null;
+      const box = $('slots');
+      box.innerHTML = '<span class="hint">查詢中…</span>';
+      try {
+        const { slots } = await api(`/api/availability?date=${date}`);
+        box.innerHTML = '';
+        for (const { time, remaining } of slots) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'slot';
+          btn.disabled = remaining === 0;
+          btn.setAttribute('aria-pressed', 'false');
+          btn.innerHTML = `${time}<small>${remaining === 0 ? '額滿' : `剩 ${remaining} 組`}</small>`;
+          btn.onclick = () => {
+            box.querySelectorAll('.slot').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+            btn.setAttribute('aria-pressed', 'true');
+            selectedTime = time;
+            showError('');
+          };
+          box.appendChild(btn);
+        }
+      } catch (err) {
+        box.innerHTML = `<span class="error">${err.message}</span>`;
+      }
+    }
+
+    function openExternal(url) {
+      if (liff.isInClient()) liff.openWindow({ url, external: true });
+      else window.open(url, '_blank');
+    }
+
+    async function init() {
+      const cfg = await api('/api/config');
+      $('shop-name').textContent = `${cfg.shopName} 線上訂位`;
+      document.title = `${cfg.shopName} 線上訂位`;
+
+      await liff.init({ liffId: cfg.liffId });
+      if (!liff.isLoggedIn()) return liff.login({ redirectUri: location.href });
+
+      try {
+        const profile = await liff.getProfile();
+        $('name').value = profile.displayName;
+      } catch { /* 沒有 profile 權限時略過 */ }
+
+      for (let i = 1; i <= 20; i++) $('people').add(new Option(`${i} 位`, i, i === 2, i === 2));
+      $('date').min = cfg.today;
+      $('date').max = cfg.last;
+      $('date').onchange = (e) => e.target.value && loadSlots(e.target.value);
+
+      $('loading').hidden = true;
+      $('form').hidden = false;
+    }
+
+    $('form').onsubmit = async (e) => {
+      e.preventDefault();
+      showError('');
+      const form = new FormData(e.target);
+      if (!form.get('date')) return showError('請選擇日期');
+      if (!selectedTime) return showError('請選擇時段');
+      if (!form.get('name').trim()) return showError('請填寫訂位姓名');
+      if (!form.get('phone').trim()) return showError('請填寫聯絡電話');
+
+      $('submit').disabled = true;
+      $('submit').textContent = '送出中…';
+      try {
+        const { booking, calendarUrl: url } = await api('/api/bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${liff.getIDToken()}` },
+          body: JSON.stringify({
+            date: form.get('date'),
+            time: selectedTime,
+            people: Number(form.get('people')),
+            name: form.get('name'),
+            phone: form.get('phone'),
+            note: form.get('note'),
+          }),
+        });
+        calendarUrl = url;
+        const rows = [
+          ['日期', booking.date],
+          ['時間', booking.time],
+          ['人數', `${booking.people} 位`],
+          ['姓名', booking.name],
+          ['編號', booking.id],
+        ];
+        $('summary').replaceChildren(...rows.flatMap(([k, v]) => {
+          const dt = document.createElement('dt'); dt.textContent = k;
+          const dd = document.createElement('dd'); dd.textContent = v;
+          return [dt, dd];
+        }));
+        $('form').hidden = true;
+        $('done').hidden = false;
+      } catch (err) {
+        showError(err.message);
+        // 剛好額滿時重新整理名額
+        if (err.message.includes('額滿')) loadSlots(form.get('date'));
+      } finally {
+        $('submit').disabled = false;
+        $('submit').textContent = '確認訂位';
+      }
+    };
+
+    $('add-calendar').onclick = () => calendarUrl && openExternal(calendarUrl);
+    $('close').onclick = () => (liff.isInClient() ? liff.closeWindow() : window.close());
+
+    init().catch((err) => {
+      $('loading').textContent = `無法載入訂位頁面：${err.message}`;
+    });
+  </script>
+</body>
+</html>
